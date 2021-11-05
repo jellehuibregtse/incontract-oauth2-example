@@ -9,6 +9,8 @@ from requests import Response
 token_url = 'http://localhost:5000/oauth/token'
 client_url = 'http://localhost:5000/oauth/client'
 contract_url = 'http://localhost:5000/contract'
+user_url = 'http://localhost:5000/user'
+template_url = 'http://localhost:5000/template'
 
 
 def resource_owner_password_credentials_grant() -> Response:
@@ -43,7 +45,55 @@ def client_credentials_grant(client_id: str, client_secret: str) -> Response:
     )
 
 
-def create_contract(token: str) -> None:
+def get_user_information(token: str) -> Response:
+    headers = {'Authorization': f'Bearer {token}'}
+    return requests.get(
+        user_url,
+        headers=headers
+    )
+
+
+def get_template(token: str, template_id: int) -> Response:
+    headers = {'Authorization': f'Bearer {token}'}
+    return requests.get(
+        f'{template_url}/{template_id}',
+        headers=headers
+    )
+
+
+def get_contract(token: str, contract_id: int) -> Response:
+    headers = {'Authorization': f'Bearer {token}'}
+    return requests.get(
+        f'{contract_url}/{contract_id}',
+        headers=headers
+    )
+
+
+def sign_contract(token: str, contract_id: int) -> Response:
+    # Get the first user signature and use that one.
+    signature = get_user_signatures(token).json()[0]['signature']
+
+    # Get contract
+    contract = get_contract(token, contract_id).json()
+    data = {**contract['parties'][0], 'signature': signature}
+
+    headers = {'Authorization': f'Bearer {token}'}
+    return requests.put(
+        f'{contract_url}/{contract_id}/sign',
+        headers=headers,
+        data=json.dumps(data)
+    )
+
+
+def get_user_signatures(token: str) -> Response:
+    headers = {'Authorization': f'Bearer {token}'}
+    return requests.get(
+        f'{user_url}/signatures',
+        headers=headers
+    )
+
+
+def create_contract(token: str, template_id: int) -> str:
     authorize = {'Authorization': f'Bearer {token}'}
     content_type_json = {
         'Content-Type': 'application/json'
@@ -51,9 +101,28 @@ def create_contract(token: str) -> None:
     accept_pdf = {
         'Accept': 'application/pdf'
     }
+
+    template = get_template(token, template_id).json()
+    parties = template['parties']
+
+    user = get_user_information(access_token).json()
+    user_id = user['id']
+
     data = json.dumps({
-        'name': 'Verwerkersovereenkomst',
-        'templateId': 107,
+        'name': template['name'],
+        'templateId': template_id,
+        'parties': [
+            {
+                'partyId': parties[0]['id'],
+                'type': parties[0]['type'],
+                'userId': user_id,
+            },
+            {
+                'partyId': parties[1]['id'],
+                'type': parties[1]['type'],
+                'userId': None,
+            }
+        ],
         'answers': [
             {
                 'questionId': 1333,
@@ -69,7 +138,8 @@ def create_contract(token: str) -> None:
                 'questionId': 1335,
                 # Wat is de straatnaam?
                 'answer': 'Klokgebouw'
-            }, {
+            },
+            {
                 'questionId': 1336,
                 # Wat is het nummer van het handelsregister van de Kamer van Koophandel (KvK) van Opdrachtgever?
                 'answer': '64589900'
@@ -154,19 +224,14 @@ def create_contract(token: str) -> None:
         headers=authorize | content_type_json,
         data=data
     )
-    print(response.status_code)
     assert response.status_code == http.HTTPStatus.CREATED
 
     contract_id = response.json()['id']
     name = response.json()['name']
     print(f'Contract {name} with id {contract_id} has been created')
 
-    response = requests.get(
-        contract_url + f'/{contract_id}',
-        headers=authorize,
-    )
+    response = sign_contract(token, contract_id)
     assert response.status_code == http.HTTPStatus.OK
-    print(response.text)
 
     response = requests.get(
         contract_url + f'/{contract_id}/download',
@@ -177,6 +242,8 @@ def create_contract(token: str) -> None:
     with open('./out/contract.pdf', 'wb') as file:
         file.write(response.content)
 
+    return get_contract(token, contract_id).json()['parties'][1]['link']
+
 
 if __name__ == '__main__':
     response = resource_owner_password_credentials_grant()
@@ -185,7 +252,9 @@ if __name__ == '__main__':
     # The previous steps do not need to be taken when copying the `client_id` and `client_secret` from the dashboard.
     response = client_credentials_grant(response.json()['client_id'], response.json()['client_secret'])
     access_token = response.json()['access_token']
-    print('Access token:', access_token)
+    print(f'Access token: {access_token}')
 
     # Create a contract and fill in the necessary data.
-    create_contract(access_token)
+    invite_link = create_contract(access_token, 107)
+
+    print(f'http://localhost:8000/ondertekenen/{invite_link}')
