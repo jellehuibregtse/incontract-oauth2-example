@@ -6,6 +6,8 @@ from pathlib import Path
 import requests
 from requests import Response
 
+from qna import verwerkersovereenkomst
+
 token_url = 'http://localhost:5000/oauth/token'
 client_url = 'http://localhost:5000/oauth/client'
 contract_url = 'http://localhost:5000/contract'
@@ -93,13 +95,49 @@ def get_user_signatures(token: str) -> Response:
     )
 
 
-def create_contract(token: str, template_id: int) -> str:
+def extract_questions_from_template(template: dict):
+    sections = template['sections']
+    questions_list = []
+
+    for section in sections:
+        questions_list += section['questions']
+
+    flat_questions_list: list = []
+
+    for question in questions_list:
+        flat_questions_list.append(
+            {'id': question['id'], 'question': question['question'], 'options': question['options']})
+
+    return flat_questions_list
+
+
+def download_contract(token: str):
+    authorize = {'Authorization': f'Bearer {token}'}
+    accept_pdf = {
+        'Accept': 'application/pdf'
+    }
+    response = requests.get(
+        contract_url + f'/{contract_id}/download',
+        headers=authorize | accept_pdf | {'pragma': 'no-cache', 'cache-control': 'no-cache'}
+    )
+
+    path = './out'
+    Path(path).mkdir(parents=True, exist_ok=True)
+    with open(f'{path}/contract.pdf', 'wb') as file:
+        file.write(response.content)
+
+    print(f'Contract with id {contract_id} has been downloaded to {path}/contract.pdf')
+
+
+def get_invite_link(token: str):
+    invite_link = get_contract(token, contract_id).json()['parties'][1]['link']
+    return f'http://localhost:8000/ondertekenen/{invite_link}'
+
+
+def create_contract(token: str, template_id: int) -> int:
     authorize = {'Authorization': f'Bearer {token}'}
     content_type_json = {
         'Content-Type': 'application/json'
-    }
-    accept_pdf = {
-        'Accept': 'application/pdf'
     }
 
     template = get_template(token, template_id).json()
@@ -123,100 +161,7 @@ def create_contract(token: str, template_id: int) -> str:
                 'userId': None,
             }
         ],
-        'answers': [
-            {
-                'questionId': 1333,
-                # Wat is de volledige bedrijfsnaam van Opdrachtgever?
-                'answer': 'd-centralize geo B.V. | Pro6PP'
-            },
-            {
-                'questionId': 1334,
-                # Wat is de plaatsnaam waar de Opdrachtgever is gevestigd?
-                'answer': 'Eindhoven'
-            },
-            {
-                'questionId': 1335,
-                # Wat is de straatnaam?
-                'answer': 'Klokgebouw'
-            },
-            {
-                'questionId': 1336,
-                # Wat is het nummer van het handelsregister van de Kamer van Koophandel (KvK) van Opdrachtgever?
-                'answer': '64589900'
-            },
-            {
-                'questionId': 1337,
-                # Is de ondertekenaar van Opdrachtgever een man of een vrouw?
-                'answer': ' de heer'
-            },
-            {
-                'questionId': 1338,
-                # Hoedanigheid ondertekenaar Opdrachtgever: is deze ingeschreven als bestuurder of
-                # gevolmachtigde in de kamer van koophandel?
-                'answer': 'gevolmachtigde'
-            },
-            {
-                'questionId': 1339,
-                # Wat is de volledige bedrijfsnaam van de Opdrachtnemer?
-                'answer': 'Tech company b.v.'
-            },
-            {
-                'questionId': 1340,
-                # Wat is de plaatsnaam waar de Opdrachtnemer is gevestigd?
-                'answer': 'Amsterdam'
-            },
-            {
-                'questionId': 1341,
-                # Wat is de straatnaam? (Opdrachtnemer)
-                'answer': 'leidseplein'
-            },
-            {
-                'questionId': 1342,
-                # Wat is het nummer van het handelsregister van de Kamer van Koophandel (KvK) van Opdrachtnemer?
-                'answer': '00000000'
-            },
-            {
-                'questionId': 1343,
-                # Is de ondertekenaar van Opdrachtnemer een man of een vrouw?
-                'answer': 'Mevrouw'
-            },
-            {
-                'questionId': 1344,
-                # Hoedanigheid ondertekenaar Opdrachtnemer: is deze ingeschreven als bestuurder of
-                # gevolmachtigde in de kamer van koophandel?
-                'answer': 'bestuurder'
-            },
-            {
-                'questionId': 1345,
-                # Wat is de voornaam en achternaam van de ondertekenaar van Opdrachtnemer?
-                'answer': 'James Bond'
-            },
-            {
-                'questionId': 1346,
-                # Wat is de voornaam en achternaam van de ondertekenaar van Opdrachtgever?
-                'answer': 'John Doe'
-            },
-            {
-                'questionId': 1374,
-                # Wat voor een product of dienst levert de Opdrachtnemer (Verwerker) of gaat deze leveren?
-                'answer': 'Nothing'
-            },
-            {
-                'questionId': 2331,
-                # Wat is het huisnummer? (Opdrachtgever)
-                'answer': '272'
-            },
-            {
-                'questionId': 2332,
-                # Wat is het huisnummer? (Opdrachtnemer)
-                'answer': '1'
-            },
-            {
-                'questionId': 2350,
-                # Rechtbank bij u in de buurt.
-                'answer': 'Rechtbank Oost-Brabant'
-            }
-        ]
+        'answers': verwerkersovereenkomst
     })
 
     response = requests.post(
@@ -230,19 +175,7 @@ def create_contract(token: str, template_id: int) -> str:
     name = response.json()['name']
     print(f'Contract {name} with id {contract_id} has been created')
 
-    response = sign_contract(token, contract_id)
-    assert response.status_code == http.HTTPStatus.OK
-
-    response = requests.get(
-        contract_url + f'/{contract_id}/download',
-        headers=authorize | accept_pdf | {'pragma': 'no-cache', 'cache-control': 'no-cache'}
-    )
-
-    Path('./out').mkdir(parents=True, exist_ok=True)
-    with open('./out/contract.pdf', 'wb') as file:
-        file.write(response.content)
-
-    return get_contract(token, contract_id).json()['parties'][1]['link']
+    return contract_id
 
 
 if __name__ == '__main__':
@@ -254,7 +187,13 @@ if __name__ == '__main__':
     access_token = response.json()['access_token']
     print(f'Access token: {access_token}')
 
-    # Create a contract and fill in the necessary data.
-    invite_link = create_contract(access_token, 107)
+    # template = get_template(access_token, 107)
+    # print(json.dumps(extract_questions_from_template(template.json()), indent=4, sort_keys=True))
 
-    print(f'http://localhost:8000/ondertekenen/{invite_link}')
+    # Create a contract
+    contract_id = create_contract(access_token, 107)
+
+    response = sign_contract(access_token, contract_id)
+    assert response.status_code == http.HTTPStatus.OK
+
+    print(get_invite_link(access_token))
