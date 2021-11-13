@@ -111,7 +111,7 @@ def extract_questions_from_template(template: dict):
     return flat_questions_list
 
 
-def download_contract(token: str):
+def download_contract(token: str, contract_id: int):
     authorize = {'Authorization': f'Bearer {token}'}
     accept_pdf = {
         'Accept': 'application/pdf'
@@ -161,7 +161,8 @@ def create_contract(token: str, template_id: int) -> int:
                 'userId': None,
             }
         ],
-        'answers': verwerkersovereenkomst
+        'answers': verwerkersovereenkomst,
+        'callbackUrl': 'http://localhost:8080/callback',
     })
 
     response = requests.post(
@@ -178,14 +179,20 @@ def create_contract(token: str, template_id: int) -> int:
     return contract_id
 
 
-if __name__ == '__main__':
+def get_access_token() -> str:
     response = resource_owner_password_credentials_grant()
+    print(response)
     response = get_api_client(response.json()['access_token'])
 
     # The previous steps do not need to be taken when copying the `client_id` and `client_secret` from the dashboard.
     response = client_credentials_grant(response.json()['client_id'], response.json()['client_secret'])
     access_token = response.json()['access_token']
     print(f'Access token: {access_token}')
+    return access_token
+
+
+if __name__ == '__main__':
+    access_token = get_access_token()
 
     # template = get_template(access_token, 107)
     # print(json.dumps(extract_questions_from_template(template.json()), indent=4, sort_keys=True))
