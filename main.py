@@ -8,11 +8,13 @@ from requests import Response
 
 from qna import verwerkersovereenkomst
 
-token_url = 'http://localhost:5000/oauth/token'
-client_url = 'http://localhost:5000/oauth/client'
-contract_url = 'http://localhost:5000/contract'
-user_url = 'http://localhost:5000/user'
-template_url = 'http://localhost:5000/template'
+host = "https://api.incontract.nl/"
+# host = "http://localhost:5000/"
+token_url = host + 'oauth/token'
+client_url = host + 'oauth/client'
+contract_url = host + 'contract'
+user_url = host + 'user'
+template_url = host + 'template'
 
 
 def resource_owner_password_credentials_grant() -> Response:
@@ -129,9 +131,28 @@ def download_contract(token: str, contract_id: int):
     print(f'Contract with id {contract_id} has been downloaded to {path}/contract.pdf')
 
 
-def get_invite_link(token: str):
+def get_invite_link(token: str, contract_id: int) -> str:
     invite_link = get_contract(token, contract_id).json()['parties'][1]['link']
-    return f'http://localhost:8000/ondertekenen/{invite_link}'
+    return f'{host}ondertekenen/{invite_link}'
+
+
+def invite_party(token: str, contract_id: int) -> Response:
+    authorize = {'Authorization': f'Bearer {token}'}
+    invite_link = get_contract(token, contract_id).json()['parties'][1]['link']
+    data = {
+        'name': 'Name',
+        'email': 'john@mail.com',
+        'message': 'Custom message',
+    }
+    content_type_json = {
+        'Content-Type': 'application/json'
+    }
+
+    return requests.post(
+        f'{contract_url}/party/{invite_link}',
+        headers=authorize | content_type_json,
+        data=json.dumps(data),
+    )
 
 
 def create_contract(token: str, template_id: int) -> int:
@@ -203,4 +224,5 @@ if __name__ == '__main__':
     response = sign_contract(access_token, contract_id)
     assert response.status_code == http.HTTPStatus.OK
 
-    print(get_invite_link(access_token))
+    print(get_invite_link(access_token, contract_id))
+    print(invite_party(access_token, contract_id).text)
